@@ -34,6 +34,9 @@ class FinishedGame:
     home_score: int
     away_score: int
     home_won: bool
+    season_type: int = 2  # ESPN codes: 1=preseason, 2=regular, 3=postseason
+    game_type: str = "regular"  # "regular" | "playoff" | "playin" | "preseason"
+    round_note: str = ""  # e.g. "East 1st Round - Game 1" or "Play-In Tournament"
 
     def to_dict(self) -> dict[str, Any]:
         return self.__dict__
@@ -59,6 +62,24 @@ async def _fetch_day(client: httpx.AsyncClient, d: date, force: bool = False) ->
     return data
 
 
+def _classify_game_type(season_type: int, note: str) -> str:
+    """Turn ESPN season.type + notes headline into our regime tag.
+
+    ESPN codes observed: 1=preseason, 2=regular, 3=postseason (playoffs),
+    4=all-star, 5=play-in tournament.
+    """
+    if season_type == 1:
+        return "preseason"
+    if season_type == 5:
+        return "playin"
+    n = (note or "").lower()
+    if "play-in" in n or "play in" in n:
+        return "playin"
+    if season_type == 3:
+        return "playoff"
+    return "regular"
+
+
 def _parse_day(raw: dict) -> list[FinishedGame]:
     out: list[FinishedGame] = []
     for ev in raw.get("events", []) or []:
@@ -75,6 +96,9 @@ def _parse_day(raw: dict) -> list[FinishedGame]:
             as_ = int(away.get("score"))
         except (TypeError, ValueError):
             continue
+        season_type = int((ev.get("season") or {}).get("type") or 2)
+        notes = comp.get("notes") or []
+        note = (notes[0].get("headline") if notes else "") or ""
         out.append(
             FinishedGame(
                 date=ev.get("date", "")[:10],
@@ -84,6 +108,9 @@ def _parse_day(raw: dict) -> list[FinishedGame]:
                 home_score=hs,
                 away_score=as_,
                 home_won=hs > as_,
+                season_type=season_type,
+                game_type=_classify_game_type(season_type, note),
+                round_note=note,
             )
         )
     return out
