@@ -23,7 +23,8 @@ from core.kimi import analyze as kimi_analyze, available as kimi_available
 from core.parlay import summarize_parlay
 from data.players import fetch_team_players
 from model import predict as model_predict_v1
-from model import predict_v2 as model_predict
+from model import predict_v2 as model_predict_gbm
+from model import predict_v3 as model_predict  # v2 box-score features is primary
 from model.props_v2 import (
     STAT_FIELDS,
     price_prop,
@@ -69,6 +70,10 @@ def _enrich(game: dict) -> dict:
         probs = model_predict.predict(
             game["home_team"], game["away_team"], game.get("start_date", "")
         )
+    elif model_predict_gbm.loaded():
+        probs = model_predict_gbm.predict(
+            game["home_team"], game["away_team"], game.get("start_date", "")
+        )
     else:
         probs = model_predict_v1.win_probabilities(game["home_team"], game["away_team"])
     out["model"] = probs
@@ -89,9 +94,10 @@ async def root():
     return {
         "ok": True,
         "service": "sports-pick",
-        "gbm_loaded": model_predict.loaded(),
+        "gbm_v2_loaded": model_predict.loaded(),
+        "gbm_v1_loaded": model_predict_gbm.loaded(),
         "elo_loaded": bool(model_predict_v1.state().ratings),
-        "model_trained": model_predict.loaded() or bool(model_predict_v1.state().ratings),
+        "model_trained": model_predict.loaded() or model_predict_gbm.loaded() or bool(model_predict_v1.state().ratings),
         "kimi_enabled": kimi_available(),
     }
 
@@ -352,18 +358,26 @@ async def analyze(q: AnalyzeQuery):
 @app.post("/model/reload")
 async def model_reload():
     model_predict_v1.reload()
+    model_predict_gbm.reload()
     model_predict.reload()
-    return {"reloaded": True, "gbm_loaded": model_predict.loaded()}
+    return {
+        "reloaded": True,
+        "gbm_v2_loaded": model_predict.loaded(),
+        "gbm_v1_loaded": model_predict_gbm.loaded(),
+    }
 
 
 @app.get("/model/metrics")
 async def model_metrics():
     import json
     from pathlib import Path
-    path = Path(__file__).parent.parent / "model" / "artifacts" / "gbm_metrics.json"
-    if not path.exists():
-        return {"error": "no metrics yet — run python -m model.gbm"}
-    return json.loads(path.read_text())
+    artifacts = Path(__file__).parent.parent / "model" / "artifacts"
+    out = {}
+    for key, filename in [("gbm_v1", "gbm_metrics.json"), ("gbm_v2", "gbm_v2_metrics.json")]:
+        p = artifacts / filename
+        if p.exists():
+            out[key] = json.loads(p.read_text())
+    return out or {"error": "no metrics yet — run python -m model.gbm_v2"}
 
 
 @app.get("/props")
