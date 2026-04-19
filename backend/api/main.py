@@ -68,7 +68,8 @@ def _enrich(game: dict) -> dict:
 
     if model_predict.loaded():
         probs = model_predict.predict(
-            game["home_team"], game["away_team"], game.get("start_date", "")
+            game["home_team"], game["away_team"], game.get("start_date", ""),
+            game_type=game.get("game_type", "regular"),
         )
     elif model_predict_gbm.loaded():
         probs = model_predict_gbm.predict(

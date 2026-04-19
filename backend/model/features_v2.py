@@ -43,7 +43,17 @@ EXTENDED_FEATURE_NAMES = [
     "h_vs_opp_margin_last3",
     # Hot/cold momentum (+2)
     "h_momentum_L5", "a_momentum_L5",
+    # Game regime (+3 one-hot)
+    "is_playoff", "is_playin", "is_preseason",
 ]
+
+
+def _regime_flags(game_type: str) -> tuple[float, float, float]:
+    return (
+        1.0 if game_type == "playoff" else 0.0,
+        1.0 if game_type == "playin" else 0.0,
+        1.0 if game_type == "preseason" else 0.0,
+    )
 
 
 @dataclass
@@ -174,6 +184,9 @@ def build_training_matrix(
         ready = (len(hr.pts_for) >= 5 and len(ar.pts_for) >= 5
                  and len(hr.efg) >= 3 and len(ar.efg) >= 3)
 
+        gt = getattr(g, "game_type", "regular")
+        is_po, is_pi, is_pre = _regime_flags(gt)
+
         if ready:
             X.append([
                 elo_diff,
@@ -188,6 +201,7 @@ def build_training_matrix(
                 h_vs_opp_3p, a_vs_opp_3p,
                 h_vs_opp_margin,
                 h_mom, a_mom,
+                is_po, is_pi, is_pre,
             ])
             y.append(1 if g.home_won else 0)
             meta.append({"date": g.date, "home": h, "away": a,
@@ -240,7 +254,9 @@ class LiveStateV2:
     roll: dict
     h2h: dict
 
-    def features_for(self, home: str, away: str, gd: date, hca_elo: float = 100.0) -> list[float]:
+    def features_for(
+        self, home: str, away: str, gd: date, hca_elo: float = 100.0, game_type: str = "regular"
+    ) -> list[float]:
         hr = self.roll.get(home, TeamRoll())
         ar = self.roll.get(away, TeamRoll())
         h_rest, h_b2b = _rest(gd, hr.last_game_date)
@@ -268,6 +284,7 @@ class LiveStateV2:
         else:
             h2h_home_rate = 0.5
 
+        is_po, is_pi, is_pre = _regime_flags(game_type)
         return [
             elo_diff, h_rest, a_rest, float(h_b2b), float(a_b2b),
             _mean(hr.pts_for, 113.0), _mean(ar.pts_for, 113.0),
@@ -283,6 +300,7 @@ class LiveStateV2:
             h_vs_opp_margin,
             sum(hr.margins) if hr.margins else 0.0,
             sum(ar.margins) if ar.margins else 0.0,
+            is_po, is_pi, is_pre,
         ]
 
 

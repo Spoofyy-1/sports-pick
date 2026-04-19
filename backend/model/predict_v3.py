@@ -40,7 +40,7 @@ def reload() -> None:
     _load()
 
 
-def predict(home: str, away: str, game_date_iso: str) -> dict:
+def predict(home: str, away: str, game_date_iso: str, game_type: str = "regular") -> dict:
     _load()
     if _gbm is None or _live is None:
         return {"error": "model_v2_not_trained"}
@@ -48,7 +48,7 @@ def predict(home: str, away: str, game_date_iso: str) -> dict:
         gd = datetime.strptime(game_date_iso[:10], "%Y-%m-%d").date()
     except Exception:
         gd = date.today()
-    feats = _live.features_for(home, away, gd)
+    feats = _live.features_for(home, away, gd, game_type=game_type)
     raw = float(_gbm.predict_proba(np.array([feats], dtype=np.float64))[0, 1])
     calibrated = float(_calib.predict([raw])[0]) if _calib is not None else raw
     return {

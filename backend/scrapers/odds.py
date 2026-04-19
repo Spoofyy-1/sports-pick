@@ -43,6 +43,8 @@ class MoneylineGame:
     home_score: int | None = None
     away_score: int | None = None
     home_won: bool | None = None
+    game_type: str = "regular"
+    round_note: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return self.__dict__.copy()
@@ -94,6 +96,22 @@ def _status_name(ev: dict) -> str:
     if "in" in name or "progress" in name:
         return "live"
     return "scheduled"
+
+
+def _classify_game_type(ev: dict) -> tuple[str, str]:
+    """Return (game_type, round_note) for an ESPN event."""
+    season_type = int((ev.get("season") or {}).get("type") or 2)
+    comp = (ev.get("competitions") or [{}])[0]
+    notes = comp.get("notes") or []
+    note = (notes[0].get("headline") if notes else "") or ""
+    n_lower = note.lower()
+    if season_type == 1:
+        return "preseason", note
+    if season_type == 5 or "play-in" in n_lower or "play in" in n_lower:
+        return "playin", note
+    if season_type == 3:
+        return "playoff", note
+    return "regular", note
 
 
 def _score(ev: dict, side: str) -> int | None:
@@ -148,6 +166,7 @@ async def fetch_nba_moneylines(days_back: int = 2, days_ahead: int = 3) -> list[
         if status == "final" and hs is not None and as_ is not None:
             home_won = hs > as_
 
+        gt, note = _classify_game_type(ev)
         games.append(
             MoneylineGame(
                 event_id=eid,
@@ -164,6 +183,8 @@ async def fetch_nba_moneylines(days_back: int = 2, days_ahead: int = 3) -> list[
                 home_score=hs,
                 away_score=as_,
                 home_won=home_won,
+                game_type=gt,
+                round_note=note,
             )
         )
     games.sort(key=lambda g: g.start_date)
