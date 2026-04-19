@@ -43,9 +43,14 @@ def _cache_path(d: date) -> Path:
     return CACHE_DIR / f"{d.strftime('%Y%m%d')}.json"
 
 
+FRESH_DAYS = 3  # recent days always refetch (games may still be live / just completed)
+
+
 async def _fetch_day(client: httpx.AsyncClient, d: date, force: bool = False) -> dict:
     path = _cache_path(d)
-    if path.exists() and not force:
+    today = date.today()
+    is_recent = (today - d).days < FRESH_DAYS
+    if path.exists() and not force and not is_recent:
         return json.loads(path.read_text())
     r = await client.get(SCOREBOARD_URL, params={"dates": d.strftime("%Y%m%d")})
     r.raise_for_status()

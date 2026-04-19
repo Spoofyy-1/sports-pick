@@ -33,6 +33,12 @@ async def main(years: int = 2) -> None:
     final_state, train_records = train(games)
     final_state.save(OUT_DIR / "elo.json")
 
+    preds_lookup = {
+        f"{r['date']}|{r['home']}|{r['away']}": round(r["predicted_home_win"], 4)
+        for r in train_records
+    }
+    (OUT_DIR / "predictions.json").write_text(json.dumps(preds_lookup))
+
     test_records = []
     for g in test_games:
         if final_state.games_played.get(g.home_team, 0) >= 5 and final_state.games_played.get(g.away_team, 0) >= 5:

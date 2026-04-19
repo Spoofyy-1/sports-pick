@@ -39,20 +39,13 @@ class MoneylineGame:
     spread: float | None
     total: float | None
     provider: str
+    status: str = "scheduled"
+    home_score: int | None = None
+    away_score: int | None = None
+    home_won: bool | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "event_id": self.event_id,
-            "name": self.name,
-            "start_date": self.start_date,
-            "home_team": self.home_team,
-            "away_team": self.away_team,
-            "home_ml": self.home_ml,
-            "away_ml": self.away_ml,
-            "spread": self.spread,
-            "total": self.total,
-            "provider": self.provider,
-        }
+        return self.__dict__.copy()
 
 
 def _parse_american(s: Any) -> int | None:
@@ -92,9 +85,32 @@ def _extract_moneylines(odds_item: dict) -> tuple[int | None, int | None]:
     return ml(odds_item.get("homeTeamOdds") or {}), ml(odds_item.get("awayTeamOdds") or {})
 
 
-async def fetch_nba_moneylines(days_ahead: int = 3) -> list[MoneylineGame]:
+def _status_name(ev: dict) -> str:
+    comp = (ev.get("competitions") or [{}])[0]
+    t = (comp.get("status") or {}).get("type") or {}
+    name = t.get("name", "").lower()
+    if "final" in name or t.get("completed"):
+        return "final"
+    if "in" in name or "progress" in name:
+        return "live"
+    return "scheduled"
+
+
+def _score(ev: dict, side: str) -> int | None:
+    comp = (ev.get("competitions") or [{}])[0]
+    c = next((c for c in comp.get("competitors", []) if c.get("homeAway") == side), {})
+    try:
+        return int(c.get("score"))
+    except (TypeError, ValueError):
+        return None
+
+
+async def fetch_nba_moneylines(days_back: int = 2, days_ahead: int = 3) -> list[MoneylineGame]:
     today = datetime.now(timezone.utc).date()
-    dates = [(today + timedelta(days=i)).strftime("%Y%m%d") for i in range(days_ahead + 1)]
+    dates = [
+        (today + timedelta(days=i)).strftime("%Y%m%d")
+        for i in range(-days_back, days_ahead + 1)
+    ]
 
     async with httpx.AsyncClient(timeout=20.0, headers=HEADERS, follow_redirects=True) as client:
         scoreboards = await asyncio.gather(
@@ -114,13 +130,24 @@ async def fetch_nba_moneylines(days_ahead: int = 3) -> list[MoneylineGame]:
 
     games: list[MoneylineGame] = []
     for (eid, ev), odds in zip(events.items(), odds_results):
-        if isinstance(odds, Exception) or not odds:
-            continue
+        status = _status_name(ev)
         comp = (ev.get("competitions") or [{}])[0]
         home = next((c for c in comp.get("competitors", []) if c.get("homeAway") == "home"), {})
         away = next((c for c in comp.get("competitors", []) if c.get("homeAway") == "away"), {})
 
-        home_ml, away_ml = _extract_moneylines(odds)
+        home_ml, away_ml = (None, None)
+        spread, total, provider = (None, None, "")
+        if not isinstance(odds, Exception) and odds:
+            home_ml, away_ml = _extract_moneylines(odds)
+            spread = odds.get("spread")
+            total = odds.get("overUnder")
+            provider = (odds.get("provider") or {}).get("name", "")
+
+        hs, as_ = _score(ev, "home"), _score(ev, "away")
+        home_won = None
+        if status == "final" and hs is not None and as_ is not None:
+            home_won = hs > as_
+
         games.append(
             MoneylineGame(
                 event_id=eid,
@@ -130,9 +157,13 @@ async def fetch_nba_moneylines(days_ahead: int = 3) -> list[MoneylineGame]:
                 away_team=(away.get("team") or {}).get("displayName", ""),
                 home_ml=home_ml,
                 away_ml=away_ml,
-                spread=odds.get("spread"),
-                total=odds.get("overUnder"),
-                provider=(odds.get("provider") or {}).get("name", ""),
+                spread=spread,
+                total=total,
+                provider=provider,
+                status=status,
+                home_score=hs,
+                away_score=as_,
+                home_won=home_won,
             )
         )
     games.sort(key=lambda g: g.start_date)

@@ -4,8 +4,12 @@ import { useEffect, useMemo, useState } from "react";
 import {
   AnalyzeResult,
   BigOddsPick,
+  GradedGame,
+  GradedResponse,
   ParlaySummary,
   Pick,
+  PropPick,
+  PropsResponse,
   fmtDate,
   fmtEV,
   fmtPct,
@@ -14,7 +18,7 @@ import {
   postJSON,
 } from "../lib/api";
 
-type Tab = "picks" | "parlays" | "bigodds" | "analyzer";
+type Tab = "picks" | "props" | "parlays" | "bigodds" | "graded" | "analyzer";
 
 export default function Page() {
   const [tab, setTab] = useState<Tab>("picks");
@@ -34,8 +38,10 @@ export default function Page() {
       <Tabs tab={tab} onChange={setTab} />
       <div className="mt-6">
         {tab === "picks" && <PicksTab />}
+        {tab === "props" && <PropsTab />}
         {tab === "parlays" && <ParlaysTab />}
         {tab === "bigodds" && <BigOddsTab />}
+        {tab === "graded" && <GradedTab />}
         {tab === "analyzer" && <AnalyzerTab kimiEnabled={!!status?.kimi_enabled} />}
       </div>
       <footer className="mt-16 border-t border-border pt-6 text-xs text-zinc-500">
@@ -92,8 +98,10 @@ function Badge({
 function Tabs({ tab, onChange }: { tab: Tab; onChange: (t: Tab) => void }) {
   const tabs: { k: Tab; label: string }[] = [
     { k: "picks", label: "Top Picks" },
+    { k: "props", label: "Stat Lines" },
     { k: "parlays", label: "Parlays" },
     { k: "bigodds", label: "Big Odds" },
+    { k: "graded", label: "Track Record" },
     { k: "analyzer", label: "AI Analyzer" },
   ];
   return (
@@ -298,6 +306,200 @@ function BigOddsTab() {
         </article>
       ))}
     </section>
+  );
+}
+
+function PropsTab() {
+  const [data, setData] = useState<PropsResponse | null>(null);
+  const [stat, setStat] = useState<"all" | PropPick["stat"]>("all");
+  const [minProb, setMinProb] = useState(0.65);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    setData(null);
+    getJSON<PropsResponse>(`/props?min_prob=${minProb}&limit=80`)
+      .then(setData)
+      .catch((e) => setErr(String(e)));
+  }, [minProb]);
+
+  const filtered = useMemo(() => {
+    if (!data) return [];
+    return stat === "all" ? data.props : data.props.filter((p) => p.stat === stat);
+  }, [data, stat]);
+
+  if (err) return <Empty msg={`Error: ${err}`} />;
+  if (!data) return <Loading />;
+
+  return (
+    <section className="grid gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-panel p-3">
+        <div className="flex flex-wrap gap-1 rounded-lg border border-border bg-surface p-1 text-xs">
+          {(["all", "points", "rebounds", "assists", "threes"] as const).map((s) => (
+            <button
+              key={s}
+              onClick={() => setStat(s)}
+              className={`rounded px-3 py-1 capitalize ${
+                stat === s ? "bg-white text-black" : "text-zinc-300 hover:bg-white/5"
+              }`}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-2 text-xs">
+          <span className="text-zinc-400">Min confidence:</span>
+          {[0.6, 0.65, 0.7, 0.75].map((v) => (
+            <button
+              key={v}
+              onClick={() => setMinProb(v)}
+              className={`rounded-md border px-2 py-1 font-mono ${
+                minProb === v
+                  ? "border-accent bg-accent/10 text-accent"
+                  : "border-border text-zinc-400 hover:text-white"
+              }`}
+            >
+              {Math.round(v * 100)}%
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {filtered.length === 0 ? (
+        <Empty msg="No props match the current filter." />
+      ) : (
+        <div className="grid gap-2 lg:grid-cols-2">
+          {filtered.map((p, i) => (
+            <PropRow key={`${p.player}-${p.stat}-${i}`} p={p} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function PropRow({ p }: { p: PropPick }) {
+  return (
+    <article className="grid grid-cols-[1fr_auto] items-center gap-3 rounded-xl border border-border bg-panel p-4">
+      <div>
+        <div className="font-semibold">{p.player}</div>
+        <div className="text-xs text-zinc-500">
+          {p.team.toUpperCase()} · {p.n_games} games · avg {p.mean} ± {p.stdev}
+        </div>
+        <div className="mt-2 text-sm">
+          <span className="rounded-full bg-accent/15 px-2 py-0.5 text-[11px] font-bold uppercase text-accent">
+            {p.side}
+          </span>{" "}
+          <span className="font-mono text-white">{p.line}</span>{" "}
+          <span className="capitalize text-zinc-300">{p.stat}</span>
+        </div>
+        <div className="mt-1 flex gap-1 text-[11px] text-zinc-500">
+          last 5:
+          {p.recent.slice(0, 5).map((v, i) => (
+            <span
+              key={i}
+              className={`font-mono ${v > p.line ? "text-accent" : "text-zinc-500"}`}
+            >
+              {v}
+            </span>
+          ))}
+        </div>
+      </div>
+      <div className="text-right">
+        <div className="font-mono text-2xl font-bold text-accent">
+          {(p.model_prob * 100).toFixed(1)}%
+        </div>
+        <div className="text-[10px] uppercase tracking-wider text-zinc-500">model hit</div>
+      </div>
+    </article>
+  );
+}
+
+function GradedTab() {
+  const [data, setData] = useState<GradedResponse | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    getJSON<GradedResponse>("/graded?limit=25")
+      .then(setData)
+      .catch((e) => setErr(String(e)));
+  }, []);
+
+  if (err) return <Empty msg={`Error: ${err}`} />;
+  if (!data) return <Loading />;
+  if (data.count === 0) return <Empty msg="No recent completed games yet." />;
+
+  return (
+    <section className="grid gap-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <StatCard label="Recent games graded" value={String(data.count)} />
+        <StatCard
+          label="Pre-game predictions"
+          value={`${data.honest_count}/${data.count}`}
+          sub="honest (no data leakage)"
+        />
+        <StatCard
+          label="Accuracy (honest)"
+          value={data.accuracy_honest != null ? fmtPct(data.accuracy_honest, 1) : "—"}
+          sub="vs. ~55% baseline"
+        />
+      </div>
+      <div className="grid gap-2">
+        {data.games.map((g) => (
+          <GradedRow key={g.event_id} g={g} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  return (
+    <div className="rounded-xl border border-border bg-panel p-4">
+      <div className="text-xs uppercase tracking-wider text-zinc-500">{label}</div>
+      <div className="mt-1 font-mono text-2xl font-bold">{value}</div>
+      {sub && <div className="text-xs text-zinc-500">{sub}</div>}
+    </div>
+  );
+}
+
+function GradedRow({ g }: { g: GradedGame }) {
+  const homeWon = g.home_score > g.away_score;
+  return (
+    <article
+      className={`grid grid-cols-[auto_1fr_auto] items-center gap-4 rounded-xl border p-4 ${
+        g.correct ? "border-accent/30 bg-accent/5" : "border-danger/30 bg-danger/5"
+      }`}
+    >
+      <div
+        className={`rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wider ${
+          g.correct ? "bg-accent text-black" : "bg-danger text-white"
+        }`}
+      >
+        {g.correct ? "HIT" : "MISS"}
+      </div>
+      <div>
+        <div className="text-xs text-zinc-400">{fmtDate(g.date)}</div>
+        <div className="mt-0.5 text-sm font-semibold">
+          <span className={homeWon ? "" : "text-zinc-400"}>
+            {g.home_team} {g.home_score}
+          </span>
+          {" — "}
+          <span className={!homeWon ? "" : "text-zinc-400"}>
+            {g.away_team} {g.away_score}
+          </span>
+        </div>
+        <div className="text-xs text-zinc-500">
+          Model picked <span className="text-zinc-300">{g.model_pick}</span> @{" "}
+          {fmtPct(g.home_team === g.model_pick ? g.model_home_prob : 1 - g.model_home_prob)}
+          {!g.honest && <span className="ml-2 text-warn">(post-game state)</span>}
+        </div>
+      </div>
+      <div className="text-right font-mono text-xs text-zinc-500">
+        {g.home_ml != null && g.away_ml != null
+          ? `${formatAmerican(g.home_ml)} / ${formatAmerican(g.away_ml)}`
+          : ""}
+      </div>
+    </article>
   );
 }
 

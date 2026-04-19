@@ -68,6 +68,50 @@ export type AnalyzeResult = {
   bet?: string;
 };
 
+export type GradedGame = {
+  event_id: string;
+  matchup: string;
+  date: string;
+  home_team: string;
+  away_team: string;
+  home_score: number;
+  away_score: number;
+  model_home_prob: number;
+  honest: boolean;
+  model_pick: string;
+  actual_winner: string;
+  correct: boolean;
+  home_ml: number | null;
+  away_ml: number | null;
+};
+
+export type GradedResponse = {
+  count: number;
+  honest_count: number;
+  accuracy_all: number | null;
+  accuracy_honest: number | null;
+  games: GradedGame[];
+};
+
+export type PropPick = {
+  player: string;
+  team: string;
+  stat: "points" | "rebounds" | "assists" | "threes";
+  line: number;
+  side: "over" | "under";
+  model_prob: number;
+  mean: number;
+  stdev: number;
+  n_games: number;
+  recent: number[];
+};
+
+export type PropsResponse = {
+  count: number;
+  props: PropPick[];
+  teams: string[];
+};
+
 export function formatAmerican(n: number): string {
   return n > 0 ? `+${n}` : `${n}`;
 }

@@ -1,13 +1,18 @@
 """Runtime predictor: loads latest Elo state and produces win probabilities."""
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from typing import Optional
 
 from .elo import EloState
 
-ARTIFACT = Path(__file__).parent / "artifacts" / "elo.json"
+ARTIFACT_DIR = Path(__file__).parent / "artifacts"
+ARTIFACT = ARTIFACT_DIR / "elo.json"
+PREDICTIONS = ARTIFACT_DIR / "predictions.json"
 
-_state: EloState | None = None
+_state: Optional[EloState] = None
+_preds: Optional[dict] = None
 
 
 def state() -> EloState:
@@ -17,9 +22,18 @@ def state() -> EloState:
     return _state
 
 
+def pregame_predictions() -> dict:
+    """Pre-update walk-forward predictions made during training. Honest for backtest."""
+    global _preds
+    if _preds is None:
+        _preds = json.loads(PREDICTIONS.read_text()) if PREDICTIONS.exists() else {}
+    return _preds
+
+
 def reload() -> None:
-    global _state
+    global _state, _preds
     _state = EloState.load(ARTIFACT)
+    _preds = None
 
 
 def win_probabilities(home: str, away: str) -> dict:
@@ -33,3 +47,10 @@ def win_probabilities(home: str, away: str) -> dict:
         "model": "elo_v1",
         "trained": bool(s.ratings),
     }
+
+
+def pregame_win_prob(date_prefix: str, home: str, away: str) -> Optional[float]:
+    """Pull the honest pre-game walk-forward prediction for a completed game."""
+    preds = pregame_predictions()
+    key = f"{date_prefix[:10]}|{home}|{away}"
+    return preds.get(key)
