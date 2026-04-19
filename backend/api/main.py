@@ -442,3 +442,18 @@ async def price_one_prop(q: PropQuery):
 async def team_ratings_endpoint():
     """Offensive / defensive ratings derived from the scoreboard cache."""
     return team_ratings()
+
+
+@app.get("/injuries")
+async def injuries_endpoint():
+    """Current NBA injury list, parsed from ESPN."""
+    from data.injuries import fetch_all
+    reports = await fetch_all()
+    # Group by team
+    by_team: dict[str, list[dict]] = {}
+    for r in reports:
+        by_team.setdefault(r.team_abbr or r.team_name, []).append(r.to_dict())
+    return {
+        "total": len(reports),
+        "by_team": by_team,
+    }
