@@ -449,11 +449,81 @@ async def injuries_endpoint():
     """Current NBA injury list, parsed from ESPN."""
     from data.injuries import fetch_all
     reports = await fetch_all()
-    # Group by team
     by_team: dict[str, list[dict]] = {}
     for r in reports:
         by_team.setdefault(r.team_abbr or r.team_name, []).append(r.to_dict())
+    return {"total": len(reports), "by_team": by_team}
+
+
+@app.get("/roster/{team_abbr}")
+async def roster_strength_endpoint(team_abbr: str):
+    """Team roster strength with injury-adjusted scoring contribution."""
+    from data.injuries import by_team as injuries_by_team
+    from model.roster_strength import compute_roster_strength
+    profiles = await fetch_team_players(team_abbr.lower(), top_n=10)
+    if not profiles:
+        raise HTTPException(status_code=404, detail="team not found")
+    inj_by_team = await injuries_by_team([team_abbr.upper()])
+    rs = compute_roster_strength(
+        profiles, inj_by_team.get(team_abbr.upper(), []), team_abbr
+    )
     return {
-        "total": len(reports),
-        "by_team": by_team,
+        "team": rs.team_abbr,
+        "baseline_score": rs.baseline_score,
+        "effective_score": rs.effective_score,
+        "strength_delta": rs.strength_delta,
+        "injured_names": rs.injured_names,
+        "injured_contribution": rs.injured_contribution,
+        "top_scorer": rs.top_scorer_name,
+        "top_scorer_minutes_trend": rs.top_scorer_minutes_trend,
+        "top_contributors": [c.__dict__ for c in rs.top_contributors],
+    }
+
+
+@app.get("/game/{event_id}/deep")
+async def game_deep_dive(event_id: str):
+    """Full breakdown: model prediction + rosters + injuries + adjusted prob."""
+    from data.injuries import by_team as injuries_by_team
+    from model.roster_strength import compute_roster_strength, win_prob_adjustment
+    raw = await _load_games()
+    game = next((g for g in raw if g.get("event_id") == event_id), None)
+    if not game:
+        raise HTTPException(status_code=404, detail="game not found")
+
+    h_abbr = TEAM_ABBR.get(game.get("home_team", ""))
+    a_abbr = TEAM_ABBR.get(game.get("away_team", ""))
+    if not h_abbr or not a_abbr:
+        raise HTTPException(status_code=404, detail="teams not mapped")
+
+    enriched = _enrich(game)
+    h_profiles = await fetch_team_players(h_abbr, top_n=10)
+    a_profiles = await fetch_team_players(a_abbr, top_n=10)
+    inj = await injuries_by_team([h_abbr.upper(), a_abbr.upper()])
+    h_rs = compute_roster_strength(h_profiles, inj.get(h_abbr.upper(), []), h_abbr)
+    a_rs = compute_roster_strength(a_profiles, inj.get(a_abbr.upper(), []), a_abbr)
+    shift = win_prob_adjustment(h_rs, a_rs)
+    base_prob = enriched["model"]["home_win_prob"]
+    adjusted = max(0.02, min(0.98, base_prob + shift))
+
+    return {
+        "game": enriched,
+        "home_roster": {
+            "baseline_score": h_rs.baseline_score,
+            "effective_score": h_rs.effective_score,
+            "strength_delta": h_rs.strength_delta,
+            "injured": h_rs.injured_names,
+            "top_scorer": h_rs.top_scorer_name,
+            "top_scorer_minutes_trend": h_rs.top_scorer_minutes_trend,
+        },
+        "away_roster": {
+            "baseline_score": a_rs.baseline_score,
+            "effective_score": a_rs.effective_score,
+            "strength_delta": a_rs.strength_delta,
+            "injured": a_rs.injured_names,
+            "top_scorer": a_rs.top_scorer_name,
+            "top_scorer_minutes_trend": a_rs.top_scorer_minutes_trend,
+        },
+        "model_home_prob": base_prob,
+        "roster_adjusted_home_prob": round(adjusted, 4),
+        "adjustment": round(shift, 4),
     }
