@@ -21,6 +21,7 @@ from core.ev import (
 )
 from core.kimi import analyze as kimi_analyze, available as kimi_available
 from core.parlay import summarize_parlay
+from core.portfolio import get_portfolio
 from data.players import fetch_team_players
 from model import predict as model_predict_v1
 from model import predict_v2 as model_predict_gbm
@@ -436,6 +437,23 @@ async def price_one_prop(q: PropQuery):
     if not quote:
         raise HTTPException(status_code=404, detail="insufficient sample")
     return quote.__dict__
+
+
+@app.get("/portfolio")
+async def portfolio_state():
+    return get_portfolio().summary()
+
+
+@app.post("/portfolio/tick")
+async def portfolio_tick(legs: int = 3):
+    raw = await _load_games()
+    suggested = await suggested_parlays(legs=legs, top=5)
+    return get_portfolio().tick(raw, suggested["parlays"])
+
+
+@app.post("/portfolio/reset")
+async def portfolio_reset():
+    return get_portfolio().reset()
 
 
 @app.get("/team_ratings")

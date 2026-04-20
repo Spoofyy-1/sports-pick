@@ -8,6 +8,8 @@ import {
   GradedResponse,
   ParlaySummary,
   Pick,
+  PortfolioBet,
+  PortfolioSummary,
   PropPick,
   PropsResponse,
   fmtDate,
@@ -18,7 +20,7 @@ import {
   postJSON,
 } from "../lib/api";
 
-type Tab = "picks" | "props" | "parlays" | "bigodds" | "graded" | "analyzer";
+type Tab = "picks" | "props" | "parlays" | "bigodds" | "graded" | "portfolio" | "analyzer";
 
 const TIP = {
   model:
@@ -65,6 +67,7 @@ export default function Page() {
         {tab === "parlays" && <ParlaysTab />}
         {tab === "bigodds" && <BigOddsTab />}
         {tab === "graded" && <GradedTab />}
+        {tab === "portfolio" && <PortfolioTab />}
         {tab === "analyzer" && <AnalyzerTab kimiEnabled={!!status?.kimi_enabled} />}
       </div>
       <footer className="mt-16 border-t border-border pt-6 text-xs text-zinc-500">
@@ -128,6 +131,7 @@ function Tabs({ tab, onChange }: { tab: Tab; onChange: (t: Tab) => void }) {
     { k: "parlays", label: "Parlays" },
     { k: "bigodds", label: "Big Odds" },
     { k: "graded", label: "Track Record" },
+    { k: "portfolio", label: "AI Portfolio" },
     { k: "analyzer", label: "AI Analyzer" },
   ];
   return (
@@ -531,6 +535,232 @@ function GradedRow({ g }: { g: GradedGame }) {
           ? `${formatAmerican(g.home_ml)} / ${formatAmerican(g.away_ml)}`
           : ""}
       </div>
+    </article>
+  );
+}
+
+function PortfolioTab() {
+  const [data, setData] = useState<PortfolioSummary | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [resetting, setResetting] = useState(false);
+
+  async function refresh(tick: boolean) {
+    setLoading(true);
+    setErr(null);
+    try {
+      const d = tick
+        ? await postJSON<PortfolioSummary>("/portfolio/tick", {})
+        : await getJSON<PortfolioSummary>("/portfolio");
+      setData(d);
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    refresh(true);
+  }, []);
+
+  async function doReset() {
+    if (!confirm("Reset the AI portfolio back to $1,000? History is wiped.")) return;
+    setResetting(true);
+    try {
+      const d = await postJSON<PortfolioSummary>("/portfolio/reset", {});
+      setData(d);
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setResetting(false);
+    }
+  }
+
+  if (err) return <Empty msg={`Error: ${err}`} />;
+  if (!data) return <Loading />;
+
+  const pnlPositive = data.pnl >= 0;
+
+  return (
+    <section className="grid gap-6">
+      <div className="rounded-xl border border-border bg-panel p-5">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="text-xs uppercase tracking-wider text-zinc-500">AI Bankroll</div>
+            <div className="mt-1 font-mono text-4xl font-bold">
+              ${data.balance.toFixed(2)}
+            </div>
+            <div className={`mt-1 text-sm font-semibold ${pnlPositive ? "text-accent" : "text-danger"}`}>
+              {pnlPositive ? "+" : ""}
+              ${data.pnl.toFixed(2)} ({fmtEV(data.roi)} ROI)
+            </div>
+            <div className="mt-1 text-xs text-zinc-500">
+              Starting bankroll ${data.starting_balance.toFixed(2)} · staking 2% of balance per parlay
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => refresh(true)}
+              disabled={loading}
+              className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-black disabled:opacity-40"
+            >
+              {loading ? "Running…" : "Run tick"}
+            </button>
+            <button
+              onClick={doReset}
+              disabled={resetting}
+              className="rounded-lg border border-border bg-surface px-4 py-2 text-sm font-semibold text-zinc-300 hover:text-white disabled:opacity-40"
+            >
+              {resetting ? "…" : "Reset"}
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <StatCard label="Bets placed" value={String(data.total_bets_placed)} />
+          <StatCard
+            label="Record"
+            value={`${data.wins}-${data.losses}`}
+            sub={data.win_rate != null ? `${fmtPct(data.win_rate, 1)} win rate` : "no settled bets yet"}
+          />
+          <StatCard label="Total staked" value={`$${data.total_staked.toFixed(2)}`} />
+          <StatCard label="Total returned" value={`$${data.total_returned.toFixed(2)}`} />
+        </div>
+
+        {data.skipped && (
+          <div className="mt-3 text-xs text-zinc-500">
+            Last tick was rate-limited (throttle). Showing cached state.
+          </div>
+        )}
+      </div>
+
+      <div>
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-zinc-400">
+          Open bets ({data.open_bets.length})
+        </h2>
+        {data.open_bets.length === 0 ? (
+          <Empty msg="No open parlays. AI will place bets on the next tick if +EV options exist." />
+        ) : (
+          <div className="grid gap-3">
+            {data.open_bets.map((b) => (
+              <BetCard key={b.id} bet={b} />
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div>
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-zinc-400">
+          Recent settled bets
+        </h2>
+        {data.closed_bets.length === 0 ? (
+          <Empty msg="No settled bets yet." />
+        ) : (
+          <div className="grid gap-3">
+            {data.closed_bets.map((b) => (
+              <BetCard key={b.id} bet={b} />
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function BetCard({ bet }: { bet: PortfolioBet }) {
+  const open = bet.status === "open";
+  const won = bet.status === "won";
+  const borderColor = open
+    ? "border-border"
+    : won
+    ? "border-accent/40 bg-accent/5"
+    : "border-danger/40 bg-danger/5";
+  const pnl = open ? null : won ? bet.payout! - bet.stake : -bet.stake;
+
+  return (
+    <article className={`rounded-xl border bg-panel p-4 ${borderColor}`}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <span
+              className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                open
+                  ? "bg-white/10 text-zinc-300"
+                  : won
+                  ? "bg-accent text-black"
+                  : "bg-danger text-white"
+              }`}
+            >
+              {bet.status}
+            </span>
+            <span className="font-mono text-2xl font-bold">
+              {formatAmerican(bet.combined_american)}
+            </span>
+            <span className="text-xs text-zinc-500">
+              @ {bet.combined_decimal.toFixed(2)}x
+            </span>
+          </div>
+          <div className="mt-1 text-xs text-zinc-500">
+            Staked <span className="text-zinc-300">${bet.stake.toFixed(2)}</span>
+            {" · "}Model {fmtPct(bet.model_prob)}
+            {" · "}EV at placement {fmtEV(bet.ev_per_dollar_at_placement)}
+            {" · "}Placed {fmtDate(new Date(bet.placed_ts * 1000).toISOString())}
+          </div>
+        </div>
+        <div className="text-right">
+          {open ? (
+            <>
+              <div className="font-mono text-lg font-bold text-accent">
+                +${bet.potential_win.toFixed(2)}
+              </div>
+              <div className="text-[10px] uppercase tracking-wider text-zinc-500">
+                potential win
+              </div>
+            </>
+          ) : (
+            <>
+              <div
+                className={`font-mono text-lg font-bold ${
+                  pnl != null && pnl >= 0 ? "text-accent" : "text-danger"
+                }`}
+              >
+                {pnl != null && pnl >= 0 ? "+" : ""}${pnl?.toFixed(2)}
+              </div>
+              <div className="text-[10px] uppercase tracking-wider text-zinc-500">
+                {won ? "profit" : "loss"}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      <ul className="mt-3 space-y-1.5 text-sm">
+        {bet.legs.map((l, i) => {
+          const result = bet.leg_results?.[i];
+          const legWon = result?.leg_won;
+          const legLost = result && !result.leg_won;
+          return (
+            <li
+              key={i}
+              className="flex items-center justify-between gap-3 border-t border-border pt-2"
+            >
+              <span
+                className={`truncate ${
+                  legWon ? "text-accent" : legLost ? "text-danger line-through" : "text-zinc-300"
+                }`}
+              >
+                {legWon ? "✓ " : legLost ? "✗ " : ""}
+                {l.label}
+              </span>
+              <span className="shrink-0 font-mono text-zinc-400">
+                {formatAmerican(l.american)}
+                {l.true_prob != null ? ` · ${fmtPct(l.true_prob)}` : ""}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
     </article>
   );
 }

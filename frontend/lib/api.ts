@@ -114,6 +114,54 @@ export type PropsResponse = {
   teams: string[];
 };
 
+export type PortfolioBetLeg = {
+  label: string;
+  event_id: string | null;
+  team: string | null;
+  american: number;
+  true_prob: number | null;
+};
+
+export type PortfolioBetLegResult = {
+  event_id: string;
+  team: string;
+  winner: string;
+  leg_won: boolean;
+};
+
+export type PortfolioBet = {
+  id: string;
+  placed_ts: number;
+  settled_ts?: number;
+  stake: number;
+  combined_american: number;
+  combined_decimal: number;
+  model_prob: number;
+  ev_per_dollar_at_placement: number;
+  potential_win: number;
+  legs: PortfolioBetLeg[];
+  status: "open" | "won" | "lost";
+  payout?: number;
+  leg_results?: PortfolioBetLegResult[];
+};
+
+export type PortfolioSummary = {
+  starting_balance: number;
+  balance: number;
+  pnl: number;
+  roi: number;
+  open_bets: PortfolioBet[];
+  closed_bets: PortfolioBet[];
+  total_bets_placed: number;
+  wins: number;
+  losses: number;
+  win_rate: number | null;
+  total_staked: number;
+  total_returned: number;
+  last_tick_ts: number;
+  skipped?: string;
+};
+
 export function formatAmerican(n: number): string {
   return n > 0 ? `+${n}` : `${n}`;
 }
