@@ -1,5 +1,7 @@
-export const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8765";
+const RAW_API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8765";
+export const API_BASE = /^https?:\/\//i.test(RAW_API_BASE)
+  ? RAW_API_BASE.replace(/\/$/, "")
+  : `https://${RAW_API_BASE.replace(/\/$/, "")}`;
 
 export async function getJSON<T>(path: string): Promise<T> {
   const r = await fetch(`${API_BASE}${path}`, { cache: "no-store" });
