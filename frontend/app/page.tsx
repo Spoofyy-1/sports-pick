@@ -51,7 +51,7 @@ export default function Page() {
   );
 }
 
-function Header({ status }: { status: { model_trained: boolean; kimi_enabled: boolean } | null }) {
+function Header({ status }: { status: { ok: boolean; model_trained: boolean; kimi_enabled: boolean } | null }) {
   return (
     <header className="flex flex-col gap-2 border-b border-border pb-6 sm:flex-row sm:items-end sm:justify-between">
       <div>
