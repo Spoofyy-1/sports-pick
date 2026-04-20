@@ -20,6 +20,29 @@ import {
 
 type Tab = "picks" | "props" | "parlays" | "bigodds" | "graded" | "analyzer";
 
+const TIP = {
+  model:
+    "The Elo model's estimated probability this team wins outright.",
+  market:
+    "The book's raw implied probability from the moneyline — includes the house vig.",
+  fair:
+    "De-vigged market probability. The book's juice removed so it compares apples-to-apples with the model.",
+  kelly:
+    "Suggested stake as a fraction of your bankroll (quarter-Kelly — a conservative fraction of full Kelly).",
+  ev:
+    "Expected value per $1 wagered. +10% means you'd net $0.10 profit per $1 on average if the model is right.",
+  american:
+    "American moneyline. + is profit on a $100 bet; − is the amount you must bet to win $100.",
+  payout:
+    "Decimal payout including stake. 2.50x means $1 returns $2.50 total.",
+  apiBadge: "Is the backend API reachable right now?",
+  modelBadge: "Is the trained model loaded and serving predictions?",
+  kimiBadge: "Is the Kimi (Moonshot) AI key configured for the Analyzer tab?",
+  hitProb: "Model's estimated probability of this prop hitting (over or under the posted line).",
+  propLine: "The sportsbook's posted line for this stat.",
+  propRecent: "Player's stat in each of the last few games. Green = cleared the line.",
+};
+
 export default function Page() {
   const [tab, setTab] = useState<Tab>("picks");
   const [status, setStatus] = useState<{
@@ -65,9 +88,9 @@ function Header({ status }: { status: { ok: boolean; model_trained: boolean; kim
         </p>
       </div>
       <div className="flex gap-2 text-[11px]">
-        <Badge ok={!!status?.ok} label="API" />
-        <Badge ok={!!status?.model_trained} label="Model" />
-        <Badge ok={!!status?.kimi_enabled} label="Kimi" okText="on" offText="no key" />
+        <Badge ok={!!status?.ok} label="API" tip={TIP.apiBadge} />
+        <Badge ok={!!status?.model_trained} label="Model" tip={TIP.modelBadge} />
+        <Badge ok={!!status?.kimi_enabled} label="Kimi" okText="on" offText="no key" tip={TIP.kimiBadge} />
       </div>
     </header>
   );
@@ -78,15 +101,18 @@ function Badge({
   label,
   okText = "ok",
   offText = "off",
+  tip,
 }: {
   ok: boolean;
   label: string;
   okText?: string;
   offText?: string;
+  tip?: string;
 }) {
   return (
     <span
-      className={`rounded-full border px-2.5 py-1 font-mono ${
+      title={tip}
+      className={`cursor-help rounded-full border px-2.5 py-1 font-mono ${
         ok ? "border-accent/40 bg-accent/10 text-accent" : "border-border bg-panel text-zinc-400"
       }`}
     >
@@ -157,15 +183,18 @@ function PicksTab() {
             <div className="mt-0.5 text-lg font-semibold">{p.team}</div>
             <div className="text-xs text-zinc-500">vs {p.opponent} · {p.matchup}</div>
             <div className="mt-2 flex flex-wrap gap-3 text-xs text-zinc-300">
-              <span>Model: <strong className="text-white">{fmtPct(p.model_prob)}</strong></span>
-              <span>Market: <strong className="text-white">{fmtPct(p.market_implied)}</strong></span>
-              <span>Fair: <strong className="text-white">{fmtPct(p.fair_prob)}</strong></span>
-              <span>¼-Kelly: <strong className="text-white">{fmtPct(p.kelly_quarter, 2)}</strong></span>
+              <span className="cursor-help" title={TIP.model}>Model: <strong className="text-white">{fmtPct(p.model_prob)}</strong></span>
+              <span className="cursor-help" title={TIP.market}>Market: <strong className="text-white">{fmtPct(p.market_implied)}</strong></span>
+              <span className="cursor-help" title={TIP.fair}>Fair: <strong className="text-white">{fmtPct(p.fair_prob)}</strong></span>
+              <span className="cursor-help" title={TIP.kelly}>¼-Kelly: <strong className="text-white">{fmtPct(p.kelly_quarter, 2)}</strong></span>
             </div>
           </div>
           <div className="text-right">
-            <div className="font-mono text-2xl font-bold">{formatAmerican(p.american)}</div>
-            <div className={`mt-1 text-sm font-semibold ${p.ev_per_dollar >= 0 ? "text-accent" : "text-danger"}`}>
+            <div className="cursor-help font-mono text-2xl font-bold" title={TIP.american}>{formatAmerican(p.american)}</div>
+            <div
+              className={`mt-1 cursor-help text-sm font-semibold ${p.ev_per_dollar >= 0 ? "text-accent" : "text-danger"}`}
+              title={TIP.ev}
+            >
               EV {fmtEV(p.ev_per_dollar)}
             </div>
           </div>
@@ -290,15 +319,18 @@ function BigOddsTab() {
             <div className="mt-0.5 text-lg font-semibold">{p.team}</div>
             <div className="text-xs text-zinc-500">{p.matchup}</div>
             <div className="mt-2 flex flex-wrap gap-3 text-xs text-zinc-300">
-              <span>Model: <strong className="text-white">{fmtPct(p.model_prob)}</strong></span>
-              <span>Market: <strong className="text-white">{fmtPct(p.market_implied)}</strong></span>
-              <span>Payout: <strong className="text-white">{p.decimal.toFixed(2)}x</strong></span>
+              <span className="cursor-help" title={TIP.model}>Model: <strong className="text-white">{fmtPct(p.model_prob)}</strong></span>
+              <span className="cursor-help" title={TIP.market}>Market: <strong className="text-white">{fmtPct(p.market_implied)}</strong></span>
+              <span className="cursor-help" title={TIP.payout}>Payout: <strong className="text-white">{p.decimal.toFixed(2)}x</strong></span>
             </div>
           </div>
           <div className="text-right">
-            <div className="font-mono text-3xl font-bold text-warn">{formatAmerican(p.american)}</div>
+            <div className="cursor-help font-mono text-3xl font-bold text-warn" title={TIP.american}>{formatAmerican(p.american)}</div>
             {p.ev_per_dollar != null && (
-              <div className={`mt-1 text-xs ${p.ev_per_dollar >= 0 ? "text-accent" : "text-zinc-500"}`}>
+              <div
+                className={`mt-1 cursor-help text-xs ${p.ev_per_dollar >= 0 ? "text-accent" : "text-zinc-500"}`}
+                title={TIP.ev}
+              >
                 EV {fmtEV(p.ev_per_dollar)}
               </div>
             )}
@@ -389,10 +421,10 @@ function PropRow({ p }: { p: PropPick }) {
           <span className="rounded-full bg-accent/15 px-2 py-0.5 text-[11px] font-bold uppercase text-accent">
             {p.side}
           </span>{" "}
-          <span className="font-mono text-white">{p.line}</span>{" "}
+          <span className="cursor-help font-mono text-white" title={TIP.propLine}>{p.line}</span>{" "}
           <span className="capitalize text-zinc-300">{p.stat}</span>
         </div>
-        <div className="mt-1 flex gap-1 text-[11px] text-zinc-500">
+        <div className="mt-1 flex cursor-help gap-1 text-[11px] text-zinc-500" title={TIP.propRecent}>
           last 5:
           {p.recent.slice(0, 5).map((v, i) => (
             <span
@@ -404,7 +436,7 @@ function PropRow({ p }: { p: PropPick }) {
           ))}
         </div>
       </div>
-      <div className="text-right">
+      <div className="cursor-help text-right" title={TIP.hitProb}>
         <div className="font-mono text-2xl font-bold text-accent">
           {(p.model_prob * 100).toFixed(1)}%
         </div>
